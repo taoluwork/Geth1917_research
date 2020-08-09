@@ -23,6 +23,7 @@ import (
 	"io"
 	"math/big"
 	mrand "math/rand"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -1790,7 +1791,29 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		}
 		// Process block using the parent state as reference point
 		substart := time.Now()
-		receipts, logs, usedGas, err := bc.processor.Process(block, statedb, bc.vmConfig)
+		receipts, logs, usedGas, txCount, err := bc.processor.Process(block, statedb, bc.vmConfig) //[TL] <= added a return for txCount
+		blockElapse := time.Since(substart)
+		fmt.Println("[BL] #= %v, tx= %v, \tt= %v, \t-> geth1917 v2.0", block.Header().Number, txCount, blockElapse) //[TL] print BL finishing line, total time
+
+		BLOCKLIMIT := big.NewInt(6653235) // [TL] a height freezer for repeatable test
+		if block.Header().Number.Cmp(BLOCKLIMIT) == 0 {
+			insertChainElapse := time.Since(insertChainBegin)
+			fmt.Printf("Reached limt: stop %v DONE\n\n", BLOCKLIMIT)
+			fmt.Print("#######\n\n")
+			fmt.Println("time: ", time.Now().Format("2006-01-02 15:04:05.000"))
+			fmt.Println("insertchain() end, time for chain inserting t= ", insertChainElapse, " -> geth1917 v2.0") //[TL] print insertchain
+
+			fmt.Println("[CH] time verify start headers   t=", verifyHeaderElapse) //<==[TL] verify headers
+			fmt.Println("[CH] total time inserting block  t=", totalBlockElapse)
+			fmt.Println("[CH-metric] total time of processing bl t=", totalblockExec)
+			fmt.Println("[CH-metric] total time of touching DB   t=", totalDBElapse)
+			fmt.Println("[CH-metric] total time of validation DB t=", totalValidateElapse)
+			fmt.Println("[CH-metric] total time of writing to DB t=", totalWriteElapse)
+			fmt.Println("[CH] total # of inserted blocks #=", totalBlockCount)
+			fmt.Println("average processing time/block t=", totalBlockElapse/time.Duration(totalBlockCount))
+			os.Exit(2) //<== [TL] this stopper will force quiting without writing the data in cache, so that next time runing will be reset
+		}
+
 		if err != nil {
 			bc.reportBlock(block, receipts, err)
 			atomic.StoreUint32(&followupInterrupt, 1)

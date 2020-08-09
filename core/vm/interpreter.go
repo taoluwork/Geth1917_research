@@ -17,8 +17,10 @@
 package vm
 
 import (
+	"fmt"
 	"hash"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -139,7 +141,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
-
+	timeINT := time.Now()
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
 	defer func() { in.evm.depth-- }()
@@ -220,6 +222,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
+		fmt.Printf("pc = %d,\top = %2X\n", int(pc), int(op)) //[TL] [VM] [OP]
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, &ErrInvalidOpCode{opcode: op}
@@ -244,6 +247,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Static portion of gas
 		cost = operation.constantGas // For tracing
 		if !contract.UseGas(operation.constantGas) {
+			fmt.Println("[VM] out of gas, t=", time.Since(timeINT)) //[TL] [VM]
 			return nil, ErrOutOfGas
 		}
 
@@ -271,6 +275,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			dynamicCost, err = operation.dynamicGas(in.evm, contract, stack, mem, memorySize)
 			cost += dynamicCost // total cost, for debug tracing
 			if err != nil || !contract.UseGas(dynamicCost) {
+				fmt.Println("[VM] out of gas, t=", time.Since(timeINT)) //[TL] [VM]
 				return nil, ErrOutOfGas
 			}
 		}
@@ -293,15 +298,19 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 		switch {
 		case err != nil:
+			fmt.Println("[VM] ExitErr, pc=", pc, "t=", time.Since(timeINT)) //[TL] [VM] return type
 			return nil, err
 		case operation.reverts:
+			fmt.Println("[VM] ExitRevert, pc=", pc, "t=", time.since(timeINT)) //[TL] [VM] return type
 			return res, ErrExecutionReverted
 		case operation.halts:
+			fmt.Println("[VM] ExitHalt, pc=", pc, "t=", time.since(timeINT)) //[TL] [VM] return type
 			return res, nil
 		case !operation.jumps:
 			pc++
 		}
 	}
+	//	fmt.Println("[VM] evm NOP, t=", time.Since(timeINT))			//[TL] [VM]
 	return nil, nil
 }
 

@@ -17,6 +17,8 @@
 package vm
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -509,6 +511,9 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]b
 	loc := callContext.stack.peek()
 	hash := common.Hash(loc.Bytes32())
 	val := interpreter.evm.StateDB.GetState(callContext.contract.Address(), hash)
+	fmt.Printf("[OP] LocKey:\t%x\n", common.BigToHash(loc)) //[TL] [OP]
+	fmt.Printf("[OP] opSLOAD:\t%x\n", val)                  //[TL] [OP]
+
 	loc.SetBytes(val.Bytes())
 	return nil, nil
 }
@@ -518,6 +523,8 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 	val := callContext.stack.pop()
 	interpreter.evm.StateDB.SetState(callContext.contract.Address(),
 		common.Hash(loc.Bytes32()), common.Hash(val.Bytes32()))
+	fmt.Printf("[OP] LocKey:\t%x\n", common.BigToHash(loc))   //[TL] [OP]
+	fmt.Printf("[OP] opSSTORE:\t%x\n", common.BigToHash(val)) //[TL] [OP]
 	return nil, nil
 }
 
