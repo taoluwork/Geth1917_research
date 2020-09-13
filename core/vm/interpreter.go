@@ -301,10 +301,10 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			fmt.Println("[VM] ExitErr, pc=", pc, "t=", time.Since(timeINT)) //[TL] [VM] return type
 			return nil, err
 		case operation.reverts:
-			fmt.Println("[VM] ExitRevert, pc=", pc, "t=", time.since(timeINT)) //[TL] [VM] return type
+			fmt.Println("[VM] ExitRevert, pc=", pc, "t=", time.Since(timeINT)) //[TL] [VM] return type
 			return res, ErrExecutionReverted
 		case operation.halts:
-			fmt.Println("[VM] ExitHalt, pc=", pc, "t=", time.since(timeINT)) //[TL] [VM] return type
+			fmt.Println("[VM] ExitHalt, pc=", pc, "t=", time.Since(timeINT)) //[TL] [VM] return type
 			return res, nil
 		case !operation.jumps:
 			pc++

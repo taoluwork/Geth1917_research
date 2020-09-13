@@ -1610,6 +1610,7 @@ func (bc *BlockChain) InsertChain(chain types.Blocks) (int, error) {
 // is imported, but then new canon-head is added before the actual sidechain
 // completes, then the historic state could be pruned again
 func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, error) {
+	insertChainBegin := time.Now()
 	// If the chain is terminating, don't even bother starting up
 	if atomic.LoadInt32(&bc.procInterrupt) == 1 {
 		return 0, nil
@@ -1628,6 +1629,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		}
 	}()
 	// Start the parallel header verifier
+	verifyHeader := time.Now()
 	headers := make([]*types.Header, len(chain))
 	seals := make([]bool, len(chain))
 
@@ -1637,6 +1639,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 	}
 	abort, results := bc.engine.VerifyHeaders(bc, headers, seals)
 	defer close(abort)
+	verifyHeaderElapse := time.Since(verifyHeader)
 
 	// Peek the error for the first block to decide the directing import logic
 	it := newInsertIterator(chain, results, bc.validator)
@@ -1712,6 +1715,16 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		bc.reportBlock(block, nil, err)
 		return it.index, err
 	}
+
+	// [TL] add some global timer
+	totalBlockElapse := 0
+	totalblockExec := 0
+	totalDBElapse := 0
+	totalValidateElapse := 0
+	totalWriteElapse := 0
+	totalBlockCount := 0
+	totalTxCount := 0
+
 	// No validation errors for the first block (or chain prefix skipped)
 	for ; block != nil && err == nil || err == ErrKnownBlock; block, err = it.next() {
 		// If the chain is terminating, stop processing blocks
@@ -1795,6 +1808,10 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		blockElapse := time.Since(substart)
 		fmt.Println("[BL] #= %v, tx= %v, \tt= %v, \t-> geth1917 v2.0", block.Header().Number, txCount, blockElapse) //[TL] print BL finishing line, total time
 
+		totalBlockCount += 1
+		totalTxCount += txCount
+		totalBlockElapse += blockElapse
+
 		BLOCKLIMIT := big.NewInt(6653235) // [TL] a height freezer for repeatable test
 		if block.Header().Number.Cmp(BLOCKLIMIT) == 0 {
 			insertChainElapse := time.Since(insertChainBegin)
@@ -1803,12 +1820,12 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 			fmt.Println("time: ", time.Now().Format("2006-01-02 15:04:05.000"))
 			fmt.Println("insertchain() end, time for chain inserting t= ", insertChainElapse, " -> geth1917 v2.0") //[TL] print insertchain
 
-			fmt.Println("[CH] time verify start headers   t=", verifyHeaderElapse) //<==[TL] verify headers
+			fmt.Println("[CH] time verify start headers   t=", verifyHeaderElapse) //<==[TL] verify headers, parallel process
 			fmt.Println("[CH] total time inserting block  t=", totalBlockElapse)
-			fmt.Println("[CH-metric] total time of processing bl t=", totalblockExec)
+			fmt.Println("[CH-metric] total time of processing bl t=", totalBlockExec)
 			fmt.Println("[CH-metric] total time of touching DB   t=", totalDBElapse)
 			fmt.Println("[CH-metric] total time of validation DB t=", totalValidateElapse)
-			fmt.Println("[CH-metric] total time of writing to DB t=", totalWriteElapse)
+			//			fmt.Println("[CH-metric] total time of writing to DB t=", totalWriteElapse)
 			fmt.Println("[CH] total # of inserted blocks #=", totalBlockCount)
 			fmt.Println("average processing time/block t=", totalBlockElapse/time.Duration(totalBlockCount))
 			os.Exit(2) //<== [TL] this stopper will force quiting without writing the data in cache, so that next time runing will be reset
@@ -1832,6 +1849,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		trieproc += statedb.SnapshotStorageReads + statedb.StorageReads + statedb.StorageUpdates
 
 		blockExecutionTimer.Update(time.Since(substart) - trieproc - triehash)
+		totalBlockExec += time.Since(substart) - trieproc - triehash
 
 		// Validate the state using the default validator
 		substart = time.Now()
@@ -1847,6 +1865,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 		storageHashTimer.Update(statedb.StorageHashes) // Storage hashes are complete, we can mark them
 
 		blockValidationTimer.Update(time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash))
+		totalValidateElapse += time.Since(substart) - (statedb.AccountHashes + statedb.StorageHashes - triehash) //<== [TL] validator
 
 		// Write the block to the chain and get the status.
 		substart = time.Now()
@@ -1863,6 +1882,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 		blockWriteTimer.Update(time.Since(substart) - statedb.AccountCommits - statedb.StorageCommits - statedb.SnapshotCommits)
 		blockInsertTimer.UpdateSince(start)
+		totalDBElapse += time.Since(subStart) //<== [TL] write block
 
 		switch status {
 		case CanonStatTy:
@@ -1895,7 +1915,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 
 		dirty, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, it.index, dirty)
-	}
+
+	} //end for block loop
 	// Any blocks remaining here? The only ones we care about are the future ones
 	if block != nil && err == consensus.ErrFutureBlock {
 		if err := bc.addFutureBlock(block); err != nil {
